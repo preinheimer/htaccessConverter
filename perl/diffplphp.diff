@@ -1,0 +1,290 @@
+1,144c1,144
+< <?php
+< // 2009 Paul Reinheimer
+< // http://blog.preinheimer.com/index.php?/archives/340-.htaccess-to-httpd.conf.html
+< // No warranties expressed or implied
+< // Special thanks to Rich Bowen http://drbacchus.com/
+< 
+< //Improvements? Let me know! Bugs? Send a patch.
+< //Unsupported Software lies below.
+< 
+< /* Example Usage:
+<  *    /var/www/domain.com> php htaccess.php > ~/htaccess.conf
+<  * Filtering to exclude (substring match)
+<  *    /var/www/domain.com> php htaccess.php evilDirectory > ~/htaccess.conf
+<  */
+< 
+< //Start from the present working directory, recurse from here. Using the real path avoids a bug where .htaccess files in the PWD are omitted from results on some systems
+< $startPath = realpath("./");
+< $ite= new RecursiveDirectoryIterator($startPath);
+< 
+< //Lets give people a hand, skip these directories. Especially helpful when run on dev systems
+< $filters = array(".svn", ".cvs");
+< 
+< //Merge base set of filters with any from the command line
+< if(count($argv) > 0)
+< {
+<    unset($argv[0]);
+<    $filters = array_merge($filters, $argv);
+< }
+< 
+< //Iterate recursively through everything from here on in, of course filtering out stuff from the filter list
+< foreach (new fileFilter(new RecursiveIteratorIterator($ite), $filters) as $filename=>$cur)
+< {
+<    $htaccessFiles[] = $filename;
+< }
+< 
+< //No files? Quit now!
+< if (count($htaccessFiles) == 0)
+< {
+<    die("No .htaccess files found");
+< }
+< 
+< //Sort the list, place least depth first. This is important to allow overrides from sub-directories to occur correctly
+< usort($htaccessFiles, 'sorter');
+< 
+< //Warnings encountered
+< $flags = 0;
+< 
+< //Iterate over found files (sorted now) and read them in.
+< foreach($htaccessFiles as $file)
+< {
+<    //Grab the file and print out the <Directory $path> bit
+<    $path = realpath(pathinfo($file, PATHINFO_DIRNAME));
+<    echo "<Directory $path>\n";
+<    $lines = file($file);
+<    if(count($lines) > 0)
+<    {
+<         //Tab the file in, check for RedirectBase which may cause problems
+<        foreach($lines as $line)
+<        {
+<            echo "\t$line";
+<            if(stripos($line, "RedirectBase") !== FALSE)
+<            {
+<            //Not tabbed! See what happens there?
+<                echo "# WARNING The above line contains RedirectBase which may not convert directly to a conf file. Please check manually\n";
+<                $flags++;
+<            }
+<        }
+<       
+<        //Handle issues where files don't end with a newline
+<        if (in_array(substr($line, -1), array("\n", "\r")))
+<        {
+<            echo "</Directory>\n\n";
+<        }else
+<        {
+<            echo "\n</Directory>\n\n";
+<        }
+<    }else{
+<        //File was empty, leave the stub in
+<        echo "\n</Directory>\n\n";
+<    }
+< }
+< 
+< //Check for warnings
+< if ($flags > 0)
+< {
+<    echo "# A total of $flags warnings were encountered. Please read through the file and correct any noted problems\n";
+< }else
+< {
+<    echo "# No warnings detected \n";
+< }
+< 
+< echo "# Please test before going live, no guarantees! \n";
+< 
+< 
+< 
+< 
+< //Sort by the number of path segments, least first
+< function sorter($a, $b)
+< {
+<    $a = count(explode("/", $a));
+<    $b = count(explode("/", $b));
+<    if($a == $b)
+<    {
+<        return 0;
+<    }
+<    if($a > $b)
+<    {
+<        return 1;
+<    }
+<    return -1;
+< }
+< 
+< 
+< 
+< //Filter out specified files. 
+< class fileFilter extends FilterIterator
+< {
+<    private $filters;
+<    public function __construct(Iterator $iterator, $filters)
+<    {
+<        parent::__construct($iterator);
+<        $this->filters = $filters;
+<    }
+< 
+<    public function accept()
+<    {
+<        $dir = $this->getInnerIterator()->current();
+<        foreach($this->filters as $filter)
+<        {
+<            if(strpos($dir, $filter) !== false)
+<            {
+<                return false;
+<            }
+<        }
+<        
+<        if (strpos($dir, ".htaccess") !== false)
+<        {
+<            return true;
+<        }
+<        //echo "Skipping $dir\n";
+<        return false;
+<    }
+< }
+< 
+---
+> #!/usr/bin/perl
+> ##
+> # 2009 Kurt P. Hundeck (whereiskurt@gmail.com)
+> #
+> # Recursively search through '--path' for files that match '--match' regex,
+> # slurp those files up, and output them as descendents of apache conf
+> # '<Directory ...>$slurped</Directory'.  Count and warn matches of 'RedirectBase'
+> #
+> # Usage:  
+> #           perl htcrawler.pl > htaccess.conf
+> #        or
+> #           perl htcrawler.pl --path=./ --match='\.htaccess$' > htaccess.conf
+> #        or
+> #           ./htcrawler.pl --path=/var/www/somesite.com/ > somesite.com.conf
+> #
+> # NOTE: It's the 'AccessFileName .htaccess' (default), it *could* be something
+> #       else, use '--match' to override.
+> #
+> use strict;
+> use warnings;
+> 
+> use English;
+> use Data::Dumper;
+> use Getopt::Long          qw(GetOptions);
+> use File::Find            qw(find);          
+> use File::Spec::Functions qw(rel2abs splitdir);
+> use File::Basename        qw(dirname);
+> 
+> ##Set some reasonable defaults
+> my %argv = ( 
+>   'startpath' => dirname(rel2abs($0)), ## Real fullpath of script, default.
+>   'match'     => qr{\.htaccess$},      ## Regex for ".htaccess" files
+>   'skip'      => qr{^((.cvs)|(.svn))$},
+> );
+> 
+> ##Parse commandline
+> GetOptions ( 'startpath|path=s' => \$argv{'startpath'} ,
+>              'match=s'          => \$argv{'match'}     ,
+>              'skip=s'           => \$argv{'skip'}      ,
+> ) or die "Can't parse commandline (!)";
+> 
+> my @matches; ##Holds the fullnames of matching files (/dir1/dir2/.htaccess)
+> 
+> ##Find files that match our criteria.
+> File::Find::find({ 'preprocess' => \&skiprcs ,   #Filter hook
+>                    'wanted'     => \&wanted  , } #Check match hook
+>                  , $argv{'startpath'});
+> 
+> sub skiprcs {
+>   ## 'grep' through the arglist (@_) and return things that
+>   ## don't match .cvs|.svn
+>   return grep { !/$argv{'skip'}/ } @_;
+> };
+> 
+> sub wanted {
+>   ##Add *fullpath* filename to matches, if we matched.
+>   if ($File::Find::name =~ m/$argv{'match'}/i) {
+>     push @matches, $File::Find::name;
+>   }
+> }
+> 
+> if (not @matches ) { 
+>   die "No files matched '$argv{'match'}' in path '$argv{'startpath'}'.\n";
+> }
+> 
+> ##Sort by shortest path depth (ie. '/folder' before '/folder/subfolder')
+> ##by comparying the length of arrays returned by 'splitdir'
+> @matches = sort { splitdir($a) <=> splitdir($b) } @matches;
+> 
+> my (%errflag, $errcount);
+> 
+> ## Hash lookup to support different failures for conversion.  Certain
+> ## pragmas won't convert 1-to-1 (like "RedirectBase"), these are the rules.
+> my %error_lkp = (
+>   'RedirectBase' => { 
+>     're'=>qr/RedirectBase/ix, 
+>     'msg'=>"##WARNING! RedirectBase' does't convert correctly. Check manually!",
+>    },
+>   'OtherParamLabel'   => { 
+>      're'=>qr/ApacheParam*/ix, 
+>      'msg'=>"##WARNING! Apache params not supported. ;-)" 
+>    },
+> );
+> 
+> foreach my $file (@matches) {
+>   ##Perl5 'slurp' $file idiom
+>   my $text = do { local( @ARGV, $RS ) = $file ; <> } ;
+> 
+>   if ($text) {
+>     ##Cleanup leading/trailing whitespace
+>     $text =~ s/^(.+?)\s*$/$1/gmix; #ltrim()
+>     $text =~ s/^\s*(.+?)$/$1/gmix; #rtrim()
+> 
+>     # Use the error lookup to see if the text contains things that don't
+>     # convert from .htaccess (like RedirectBase..)
+>     while( my ($key, $value) = each(%error_lkp)) {
+>       my $re  = $value->{'re'};   #Each error has it's own match pattern
+>       my $msg = $value->{'msg'};  #and error message.
+> 
+>       ##If the text matched the error regex, insert a warning $msg
+>       ## and track/count it.
+>       if (my $count = $text =~ s/^(.*?$re.*?)$/$RS##$msg$RS$1/gmix) {
+>         $errflag{$key}+=$count;
+>         $errcount +=$count;
+>       }
+>     }
+> 
+>     ##Add a "tab" infront of each line
+>     $text =~ s/^(.+?)$/\t$1/gmix;  
+>     ##Add a newline, back.
+>     $text .= $RS;
+>   }
+>   else {
+>    $text = ""; ##NOTE: $text is undef until we make it an "empty string"
+>   }
+> 
+>   my $dir = dirname($file); 
+>   print "<Directory $dir >$RS";
+>   print $text;
+>   print "</Directory>$RS";
+> 
+> }
+> 
+> ## Output a commented block (Apache style) with any erros we found.
+> if ($errcount > 0) {
+>   ##Convert our %errflag to a nicely Dump'd output.
+>   my $errors = Data::Dumper->Dump( [ \%errflag ], [ qw(*ErrorTypeFound) ] );
+> 
+>   ##Append '#' infront of each line of $errors.
+>   $errors =~ s/^(.+?)$/#$1/gmix;
+> 
+>   print $RS;
+>   print "######################################################$RS";
+>   print "#Total Warnings: $errcount $RS";
+>   print $errors;
+>   print "######################################################$RS";
+>   print $RS;
+> }
+> 
+> print "######################################################$RS";
+> print "## Total Files processed: " . scalar @matches . $RS;
+> print "######################################################$RS";
+> print $RS;
+> print "## Please test before going live, no guarantees! $RS";
