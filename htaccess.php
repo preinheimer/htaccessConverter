@@ -1,13 +1,21 @@
 <?php
-// 2009 Paul Reinheimer
-// http://blog.preinheimer.com/index.php?/archives/340-.htaccess-to-httpd.conf.html
-// No warranties expressed or implied
-// Special thanks to Rich Bowen http://drbacchus.com/
-
-//Improvements? Let me know! Bugs? Send a patch.
-//Unsupported Software lies below.
-
-/* Example Usage:
+/**
+ * Convert .htaccess to httpd.conf entries
+ *
+ * @author Paul Reinheimer
+ * @copyright Copyright (c) 2009, Paul Reinheimer
+ * @license 
+ * @link http://blog.preinheimer.com/index.php?/archives/340-.htaccess-to-httpd.conf.html
+ * @version 1.1
+ *
+ * No warranties expressed or implied
+ * Special thanks to Rich Bowen http://drbacchus.com/
+ * Minor contributors: Jakub Cernek [http://jakub.cernek.cz/]
+ *
+ * Improvements? Let me know! Bugs? Send a patch.
+ * Unsupported Software lies below.
+ *
+ * Example Usage:
  *    /var/www/domain.com> php htaccess.php > ~/htaccess.conf
  * Filtering to exclude (substring match)
  *    /var/www/domain.com> php htaccess.php evilDirectory > ~/htaccess.conf
@@ -18,7 +26,7 @@ $startPath = realpath("./");
 $ite= new RecursiveDirectoryIterator($startPath);
 
 //Lets give people a hand, skip these directories. Especially helpful when run on dev systems
-$filters = array(".svn", ".cvs");
+$filters = array(".svn", ".cvs", ".git");
 
 //Merge base set of filters with any from the command line
 if(count($argv) > 0)
@@ -133,7 +141,8 @@ class fileFilter extends FilterIterator
            }
        }
        
-       if (strpos($dir, ".htaccess") !== false)
+       $filename = DIRECTORY_SEPARATOR . '.htaccess';
+       if (substr($dir, - strlen($filename), strlen($filename)) == $filename)
        {
            return true;
        }
