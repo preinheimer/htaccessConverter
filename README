@@ -1,0 +1,5 @@
+This script recursively searches from the present working directory for .htaccess files. It converts the directives found within the .htaccess files into the apropriate format for addition within the httpd.conf configuration file.
+
+This is useful as .htaccess files are incredibly easy to work with during development, but a major performance issue in production. Get the best of both worlds, let your devs work on the fly, then merge as part of your deployment process
+
+
