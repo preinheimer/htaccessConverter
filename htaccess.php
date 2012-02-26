@@ -19,11 +19,12 @@
  *    /var/www/domain.com> php htaccess.php > ~/htaccess.conf
  * Filtering to exclude (substring match)
  *    /var/www/domain.com> php htaccess.php evilDirectory > ~/htaccess.conf
+ * Specify a starting directory
+ *    /var/www/domain.com> php htaccess.php -d public > ~/htaccess.conf
  */
 
-//Start from the present working directory, recurse from here. Using the real path avoids a bug where .htaccess files in the PWD are omitted from results on some systems
-$startPath = realpath("./");
-$ite= new RecursiveDirectoryIterator($startPath);
+//The default is path is the current working path
+$path = "./";
 
 //Lets give people a hand, skip these directories. Especially helpful when run on dev systems
 $filters = array(".svn", ".cvs", ".git");
@@ -31,9 +32,23 @@ $filters = array(".svn", ".cvs", ".git");
 //Merge base set of filters with any from the command line
 if(count($argv) > 0)
 {
+    //Check if a directory is given and delete it from $argv to keep the $filters array clean
+    $args = getopt('d:');
+    if (isset($args['d']) && $args['d']) {
+        $path = $args['d'];
+        unset($argv[array_search('-d', $argv)]);
+        unset($argv[array_search($path, $argv)]);
+    }
     unset($argv[0]);
     $filters = array_merge($filters, $argv);
 }
+
+//Start from the given or present working directory, recurse from here. Using the real path avoids a bug where .htaccess files in the PWD are omitted from results on some systems
+$startPath = realpath($path);
+if (!$startPath) {
+    die("The given path '$path' doesn't exist.\n");
+}
+$ite= new RecursiveDirectoryIterator($startPath);
 
 //Iterate recursively through everything from here on in, of course filtering out stuff from the filter list
 foreach (new fileFilter(new RecursiveIteratorIterator($ite), $filters) as $filename=>$cur)
